@@ -6,11 +6,8 @@ import requestIp from "request-ip"
 import { config } from "dotenv"
 import "colors"
 
-
 import Contador from "./database/models/contador.js"
 import RateLimit from "./database/models/rateLimit.js"
-
-
 
 
 
@@ -133,8 +130,8 @@ app.listen(8080, () => {
 
 
 
-
 export default client
+
 process.on("unhandledRejection", (reason, promise) => {
   console.log(reason, promise)
 })
