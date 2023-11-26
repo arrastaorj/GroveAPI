@@ -1,16 +1,31 @@
 import registerRoutes from "./handler.js"
 import Express from "express"
+import { Client, GatewayIntentBits, Partials } from "discord.js"
 import cors from "cors"
 import requestIp from "request-ip"
 import { config } from "dotenv"
 import "colors"
-import { Ratelimit } from '@upstash/ratelimit'
-import { Redis } from '@upstash/redis'
-import { Client, GatewayIntentBits, Partials } from "discord.js"
+
+
+import Contador from "./database/models/contador.js"
+import RateLimit from "./database/models/rateLimit.js"
+
+
+
+
 
 const client = new Client({
-  intents: [GatewayIntentBits.GuildMembers, GatewayIntentBits.Guilds],
-  partials: [Partials.User, Partials.GuildMember],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.GuildPresences,
+    GatewayIntentBits.GuildMessageReactions,
+    GatewayIntentBits.DirectMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
+  ],
+  partials: [Partials.Channel, Partials.Message, Partials.User, Partials.GuildMember, Partials.Reaction]
 })
 
 const app = Express()
@@ -22,6 +37,93 @@ app.use(
 config()
 registerRoutes(app)
 
+
+import connectiondb from "./database/connect.js"
+connectiondb.start()
+
+
+
+
+app.use(async (req, res, next) => {
+  try {
+    const resultado = await Contador.findOne();
+    let requestCount = resultado ? resultado.contagem : 0;
+
+    requestCount++;
+
+    await Contador.findOneAndUpdate({}, { contagem: requestCount }, { upsert: true });
+
+    const ip = req.ip;
+    const windowMs = 60 * 2000;
+    const maxRequests = 5;
+
+    let rateLimitRecord = await RateLimit.findOne({ ip });
+
+    if (!rateLimitRecord) {
+      rateLimitRecord = await RateLimit.create({ ip, requests: 1 });
+    } else {
+      const now = new Date();
+      const timeDiff = now - rateLimitRecord.createdAt;
+
+      if (timeDiff <= windowMs) {
+        if (rateLimitRecord.requests >= maxRequests) {
+          return res.status(429).json({ error: 'Muitas solicitações' });
+        } else {
+          await RateLimit.findByIdAndUpdate(rateLimitRecord._id, {
+            $inc: { requests: 1 },
+          });
+        }
+      } else {
+        await RateLimit.findByIdAndUpdate(rateLimitRecord._id, {
+          requests: 1,
+          createdAt: now,
+        });
+      }
+    }
+
+    next();
+  } catch (error) {
+    console.error('Erro ao processar a requisição:', error);
+    res.status(500).send('Erro interno do servidor');
+  }
+});
+
+
+
+app.get('/stats', (req, res) => {
+  Contador.findOne()
+    .then(resultado => {
+      const requestCount = resultado ? resultado.contagem : 0;
+      res.json({ totalRequests: requestCount });
+    })
+    .catch(error => {
+      console.error(error);
+      res.status(500).json({ error: 'Erro ao buscar estatísticas' });
+    });
+});
+
+
+
+client.on(`ready`, async () => {
+
+  const resultado = await Contador.findOne();
+  let requestCount = resultado ? resultado.contagem : 0;
+
+  let status = [
+    `Request: ${requestCount}`
+  ],
+    i = 0
+
+  setInterval(() => {
+    client.user.setPresence({
+      activities: [{ name: `${status[i++ % status.length]}`, type: 3 }],
+      status: 'online',
+    })
+  }, 1000)
+  client.user.setStatus('online')
+});
+
+
 app.listen(8080, () => {
   console.log("[📡 SERVIDOR EXPRESS]".bgMagenta, "Online: Porta 8080.".magenta)
   client.login(process.env.BOT_TOKEN).then(() => {
@@ -29,42 +131,6 @@ app.listen(8080, () => {
   })
 })
 
-
-const ratelimit = new Ratelimit({
-  redis: Redis.fromEnv(),
-  limiter: Ratelimit.slidingWindow(10, "90s")
-})
-
-
-const HTTP_STATUS = {
-  OK: 200,
-  TOO_MANY_REQUESTS: 429,
-  INTERNAL_SERVER_ERROR: 500,
-}
-
-app.use(async (req, res, next) => {
-  try {
-    const ip = req.headers["x-forwarded-for"] || ""
-    const { success, reset } = await ratelimit.limit(ip)
-
-    if (!success) {
-      const now = Date.now()
-      const retryAfter = Math.floor((reset - now) / 1000)
-
-      res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json({
-        status: HTTP_STATUS.TOO_MANY_REQUESTS,
-        headers: { 'Tentar novamente depois de': `${retryAfter} segundos` },
-        message: 'Muitas solicitações',
-      })
-    } else {
-      next()
-    }
-  } catch (error) {
-    console.error("Erro ao verificar limite de taxa de processamento:", error)
-
-    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).send("Erro do Servidor Interno")
-  }
-})
 
 
 

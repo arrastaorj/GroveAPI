@@ -121,7 +121,7 @@ const userRoute = async (req, res) => {
             });
 
 
-            
+
           }
 
         } else {
@@ -205,7 +205,8 @@ const userRoute = async (req, res) => {
       }
     }
   }
-};
+
+}
 
 
 export default {
