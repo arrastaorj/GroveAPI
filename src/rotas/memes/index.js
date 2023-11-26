@@ -1,5 +1,5 @@
 import client from "../../main.js";
-
+import { WebhookClient, EmbedBuilder, ApplicationFlagsBitField } from "discord.js";
 
 const userRoute2 = (req, res) => {
   const images = ["https://encrypted-tbn0.gstatic.com/images?q=tbn%3AANd9GcTo7bKomp-1j5cRHPcoXejzhnS_GDsZVu1jkg&usqp=CAU",
@@ -323,7 +323,38 @@ const userRoute2 = (req, res) => {
   ]
 
   res.json({ images });
-};
+
+  const whClient = new WebhookClient({
+    url: process.env.API_LOGS_WEBHOOK,
+  });
+
+  const startTime = new Date().getTime();
+
+  const endTime = new Date().getTime();
+  const responseTime = endTime - startTime;
+
+
+  const embedLogs = new EmbedBuilder()
+    .setAuthor({
+      name: "GroveMemes | User Endpoint",
+    })
+    .setColor("Blue")
+    .setFields(
+      {
+        name: "🌍 Endereço IP:",
+        value: `${req.clientIp}`,
+        inline: true,
+      },
+      {
+        name: "⭐ Tempo de Resposta:",
+        value: `${responseTime}ms`,
+        inline: false,
+      }
+    );
+
+  whClient.send({ embeds: [embedLogs] });
+
+}
 
 export default {
   method: "get",
