@@ -7,7 +7,7 @@ export default {
       .status(200)
       .json({
         message: "Olá, seja bem vindo(a).",
-        rotas: "/user/:userID.",
+        rotas: "/user/:userID | /grovememes",
         createdBy: "@arrastaorj",
       });
   },

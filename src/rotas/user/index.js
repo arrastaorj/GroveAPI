@@ -204,19 +204,12 @@ const userRoute = async (req, res) => {
   }
 };
 
-// Aplicar o middleware de limitação de taxa e a rota ao mesmo tempo
+
 export default {
   method: "get",
   name: "/user/:userId",
   execute: userRoute,
 };
-
-
-
-
-
-
-//aq pora
 
 
 
