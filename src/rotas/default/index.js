@@ -8,7 +8,7 @@ export default {
       .json({
         message: "Olá, seja bem vindo(a).",
         rotas: "/user/:userID.",
-        createdBy: "@uylt",
+        createdBy: "@arrastaorj",
       });
   },
 };
