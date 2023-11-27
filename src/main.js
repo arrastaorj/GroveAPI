@@ -7,7 +7,11 @@ import { config } from "dotenv"
 import "colors"
 
 import Contador from "./database/models/contador.js"
-import RateLimit from "./database/models/rateLimit.js"
+
+
+import { Ratelimit } from '@upstash/ratelimit'
+import { Redis } from '@upstash/redis'
+
 
 
 
@@ -42,49 +46,22 @@ connectiondb.start()
 
 
 app.use(async (req, res, next) => {
+
   try {
-    const resultado = await Contador.findOne();
+    const resultado = await Contador.findOne()
     let requestCount = resultado ? resultado.contagem : 0;
 
     requestCount++;
 
-    await Contador.findOneAndUpdate({}, { contagem: requestCount }, { upsert: true });
-
-    const ip = req.ip;
-    const windowMs = 60 * 2000;
-    const maxRequests = 5;
-
-    let rateLimitRecord = await RateLimit.findOne({ ip });
-
-    if (!rateLimitRecord) {
-      rateLimitRecord = await RateLimit.create({ ip, requests: 1 });
-    } else {
-      const now = new Date();
-      const timeDiff = now - rateLimitRecord.createdAt;
-
-      if (timeDiff <= windowMs) {
-        if (rateLimitRecord.requests >= maxRequests) {
-          return res.status(429).json({ error: 'Muitas solicitações' });
-        } else {
-          await RateLimit.findByIdAndUpdate(rateLimitRecord._id, {
-            $inc: { requests: 1 },
-          });
-        }
-      } else {
-        await RateLimit.findByIdAndUpdate(rateLimitRecord._id, {
-          requests: 1,
-          createdAt: now,
-        });
-      }
-    }
+    await Contador.findOneAndUpdate({}, { contagem: requestCount }, { upsert: true })
 
     next();
   } catch (error) {
     console.error('Erro ao processar a requisição:', error);
     res.status(500).send('Erro interno do servidor');
   }
-});
 
+})
 
 
 app.get('/stats', (req, res) => {
@@ -101,23 +78,22 @@ app.get('/stats', (req, res) => {
 
 
 
-client.on(`ready`, async () => {
+client.on('ready', async () => {
+  let i = 0;
 
-  const resultado = await Contador.findOne();
-  let requestCount = resultado ? resultado.contagem : 0;
+  setInterval(async () => {
+    const resultado = await Contador.findOne();
+    let requestCount = resultado ? resultado.contagem : 0;
 
-  let status = [
-    `Request: ${requestCount}`
-  ],
-    i = 0
+    let status = [`Request: ${requestCount}`];
 
-  setInterval(() => {
     client.user.setPresence({
       activities: [{ name: `${status[i++ % status.length]}`, type: 3 }],
       status: 'online',
-    })
-  }, 1000)
-  client.user.setStatus('online')
+    });
+  }, 10000); // Intervalo ajustado para 10 segundos
+
+  client.user.setStatus('online');
 });
 
 
@@ -130,8 +106,47 @@ app.listen(8080, () => {
 
 
 
-export default client
 
+const ratelimit = new Ratelimit({
+  redis: Redis.fromEnv(),
+  limiter: Ratelimit.slidingWindow(10, "90s")
+})
+
+
+const HTTP_STATUS = {
+  OK: 200,
+  TOO_MANY_REQUESTS: 429,
+  INTERNAL_SERVER_ERROR: 500,
+}
+
+app.use(async (req, res, next) => {
+  try {
+    const ip = req.headers["x-forwarded-for"] || ""
+    const { success, reset } = await ratelimit.limit(ip)
+
+    if (!success) {
+      const now = Date.now()
+      const retryAfter = Math.floor((reset - now) / 1000)
+
+      res.status(HTTP_STATUS.TOO_MANY_REQUESTS).json({
+        status: HTTP_STATUS.TOO_MANY_REQUESTS,
+        headers: { 'Tentar novamente depois de': `${retryAfter} segundos` },
+        message: 'Muitas solicitações',
+      })
+    } else {
+      next()
+    }
+  } catch (error) {
+    console.error("Erro ao verificar limite de taxa de processamento:", error)
+
+    res.status(HTTP_STATUS.INTERNAL_SERVER_ERROR).send("Erro do Servidor Interno")
+  }
+})
+
+
+
+
+export default client
 process.on("unhandledRejection", (reason, promise) => {
   console.log(reason, promise)
 })
